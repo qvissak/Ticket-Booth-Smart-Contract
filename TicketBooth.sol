@@ -1,30 +1,33 @@
-pragma solidity ^0.4.18;
+pragma solidity ^0.4.21;
+
+/**
+Usage: "Blockchain Workshop", "03-23-2018", 50, 20
+*/
 
 interface TicketBoothInterface {
-    function buyTicket(string name, string email) external payable;
-    function showTicketsRemaining() external returns(uint256);
-    function updateNumTickets (uint256 numTickets) external;
-    function updateTicketCost (uint256 eventCost) external;
+    function buyTicket() external payable;
+    function showTicketsRemaining() constant external returns(uint64);
+    function updateNumTickets (uint64 numTickets) external;
+    function updateTicketCost (uint32 eventCost) external;
     function requestRefund () external;
+    function sellTicket (address recipient, uint32 cost) external payable;
 }
 
 contract TicketBooth is TicketBoothInterface {
     address public _ticketMaster;
 
     struct User {
-        string name;
-        string email;
-        bool paid;
-        uint256 ticketPrice;
+        bool hasPaid;
+        uint32 ticketPrice;
     }
 
     string public _eventName;
     string public _eventDate;
-    uint256 public _eventCost;
+    uint32 public _eventCost;
 
-    uint256 private _numTickets;
+    uint64 private _numTickets;
     mapping(address => User) private _attendees;
-
+    
     modifier stillTicketsLeft() {
         require(_numTickets > 0);
         _;
@@ -35,12 +38,17 @@ contract TicketBooth is TicketBoothInterface {
         _;
     }
 
-    modifier notAttendee () {
-        require(!_attendees[msg.sender].paid);
+    modifier inAttendance () {
+        require(_attendees[msg.sender].hasPaid);
         _;
     }
 
-    function TicketBooth(string eventName, string eventDate, uint256 eventCost, uint256 numTickets) public {
+    modifier notInAttendance () {
+        require(!_attendees[msg.sender].hasPaid);
+        _;
+    }
+
+    function TicketBooth (string eventName, string eventDate, uint32 eventCost, uint64 numTickets) public {
         _ticketMaster = msg.sender;
         _eventName = eventName;
         _eventDate = eventDate;
@@ -48,31 +56,34 @@ contract TicketBooth is TicketBoothInterface {
         _numTickets = numTickets;
     }
 
-    function decrementTicket() private { _numTickets--; }
-    function incrementTicket() private { _numTickets++; }
-
-    function buyTicket (string name, string email) external payable stillTicketsLeft notAttendee {
-        decrementTicket();
-        _attendees[msg.sender] = User(name, email, true, _eventCost);
+    function buyTicket () external payable stillTicketsLeft notInAttendance {
+        require(msg.value >= _eventCost);
+        _numTickets--;
+        _attendees[msg.sender] = User(true, _eventCost);
         msg.sender.transfer(msg.value - _eventCost);
     }
 
-    function showTicketsRemaining () external returns(uint256) {
+    function showTicketsRemaining () constant external returns(uint64) {
         return _numTickets;
     }
 
-    function updateNumTickets (uint256 numTickets) external isTicketmaster {
+    function updateNumTickets (uint64 numTickets) external isTicketmaster {
         _numTickets = numTickets;
     }
   
-    function updateTicketCost (uint256 eventCost) external isTicketmaster {
+    function updateTicketCost (uint32 eventCost) external isTicketmaster {
         _eventCost = eventCost;
     }
 
-    function requestRefund () external {
-        require(_attendees[msg.sender].paid);
-        _attendees[msg.sender].paid = false;
+    function requestRefund () external inAttendance {
         msg.sender.transfer(_attendees[msg.sender].ticketPrice);
-        incrementTicket();
+        delete _attendees[msg.sender];
+        _numTickets++;
+    }
+
+    function sellTicket (address recipient, uint32 cost) external payable inAttendance {
+        delete _attendees[msg.sender];
+        require(recipient.send(cost));
+        _attendees[recipient] = User(true, cost);
     }
 }
